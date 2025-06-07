@@ -21,6 +21,7 @@ export type Call = {
 let provider: ethers.JsonRpcProvider,
   firstSigner: ethers.Wallet,
   sponsorSigner: ethers.Wallet,
+  coldSigner: ethers.Wallet,
   targetAddress: string,
   usdcAddress: string,
   recipients: string[];
@@ -30,6 +31,7 @@ async function initializeSigners() {
   if (
     !process.env.FIRST_PRIVATE_KEY ||
     !process.env.SPONSOR_PRIVATE_KEY ||
+    !process.env.COLD_PRIVATE_KEY ||
     !process.env.DELEGATION_CONTRACT_ADDRESS ||
     !process.env.QUICKNODE_URL ||
     !process.env.USDC_ADDRESS
@@ -43,12 +45,13 @@ async function initializeSigners() {
 
   firstSigner = new ethers.Wallet(process.env.FIRST_PRIVATE_KEY, provider);
   sponsorSigner = new ethers.Wallet(process.env.SPONSOR_PRIVATE_KEY, provider);
+  coldSigner = new ethers.Wallet(process.env.COLD_PRIVATE_KEY, provider);
 
   targetAddress = process.env.DELEGATION_CONTRACT_ADDRESS;
   usdcAddress = process.env.USDC_ADDRESS;
   recipients = [
     "0x6278A1E803A76796a3A1f7F6344fE874ebfe94B2",
-    "0x22e577506CF3721f0aC9a382612791600f2AEa8d",
+    sponsorSigner.address,
   ];
 
   console.log("第一个签名者地址：", firstSigner.address);
@@ -201,37 +204,34 @@ async function sendSponsoredTransaction(
   console.log(`Transaction hash: ${tx.hash}`);
   return tx;
 }
-// 步骤 5：检查 USDC 余额
-// 步骤 6：撤销委托
-// 步骤 7：运行完整的工作流程
 
 (async function main() {
   await initializeSigners();
-  const state = await checkDelegationStatus(firstSigner.address);
-  if (state == null) {
-    const currentNonce_first = await firstSigner.getNonce();
-    const auth_first = await createAuthorization(
-      firstSigner,
-      targetAddress,
-      currentNonce_first + 1
-    );
-
-    const currentNonce_sponsor = await sponsorSigner.getNonce();
-    const auth_sponsor = await createAuthorization(
-      sponsorSigner,
-      targetAddress,
-      currentNonce_sponsor
-    );
-
-    const tx = await firstSigner.sendTransaction({
+  const signers = [firstSigner, sponsorSigner, coldSigner];
+  const authorizationList = [];
+  for (const signer of signers) {
+    const state = await checkDelegationStatus(signer.address);
+    if (state == null) {
+      const currentNonce = await signer.getNonce();
+      const auth = await createAuthorization(
+        signer,
+        targetAddress,
+        signer.address == sponsorSigner.address
+          ? currentNonce + 1
+          : currentNonce
+      );
+      authorizationList.push(auth);
+    }
+  }
+  if (authorizationList.length > 0) {
+    // sponsor or paymaster 提交授权到链上
+    const tx = await sponsorSigner.sendTransaction({
       type: 4,
-      to: firstSigner.address,
-      authorizationList: [auth_first, auth_sponsor],
+      to: sponsorSigner.address,
+      authorizationList: authorizationList,
     });
     await tx.wait();
     console.log("交易哈希:", tx.hash);
-  } else {
-    // await revokeDelegation();
   }
 
   const calls_first: Call[] = [];
@@ -242,7 +242,7 @@ async function sendSponsoredTransaction(
   for (const recipient of recipients) {
     calls_first.push({
       to: recipient,
-      value: parseEther("0.0001"),
+      value: parseEther("0.001"),
       data: "0x",
     });
 
@@ -255,12 +255,15 @@ async function sendSponsoredTransaction(
 
   await sendNonSponsoredTransaction(firstSigner, calls_first);
 
-  const signature = await getSponseeSignature(firstSigner, calls_sponsor);
+  const signature = await getSponseeSignature(coldSigner, calls_sponsor);
 
   await sendSponsoredTransaction(
     sponsorSigner,
-    firstSigner.address,
+    coldSigner.address,
     calls_sponsor,
     signature
   );
+
+  // await revokeDelegation(firstSigner);
+  // await revokeDelegation(sponsorSigner);
 })();
