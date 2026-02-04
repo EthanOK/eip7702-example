@@ -11,13 +11,13 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@aa-sdk/core": "^4.48.0",
-    "@account-kit/infra": "^4.48.0",
-    "@account-kit/smart-contracts": "^4.48.0",
-    "@account-kit/wallet-client": "^0.1.0-alpha.12",
-    "alchemy-sdk": "^3.6.1",
-    "dotenv": "^16.5.0",
-    "ethers": "^6.14.3"
+    "@aa-sdk/core": "^4.83.2",
+    "@account-kit/infra": "^4.83.2",
+    "@account-kit/smart-contracts": "^4.83.2",
+    "@account-kit/wallet-client": "^4.83.2",
+    "alchemy-sdk": "^3.6.5",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.16.0"
   },
   "devDependencies": {
     "@typechain/ethers-v6": "^0.5.1",
